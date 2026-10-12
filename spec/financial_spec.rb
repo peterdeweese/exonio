@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'bigdecimal'
+require 'timeout'
 
 describe Exonio::Financial do
   describe '#effect' do
@@ -225,6 +226,99 @@ describe Exonio::Financial do
 
         expect(results.round(2)).to eq(5.32)
       end
+    end
+
+    context 'when no rate can be solved for' do
+      it 'returns NaN when nper is zero and no rate solves the equation' do
+        results = Exonio.rate(0, pmt, pv)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when nper is zero and every rate solves the equation' do
+        results = Exonio.rate(0, pmt, -50.0, 50.0)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when the iteration diverges' do
+        results = Exonio.rate(-12, pmt, pv)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when every cash flow is zero' do
+        results = Exonio.rate(nper, 0.0, 0.0, 0.0)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when pmt and pv share a sign' do
+        results = Exonio.rate(nper, pmt, 3056.00)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when fv is unreachable' do
+        results = Exonio.rate(nper, pmt, pv, -1_000_000_000)
+
+        expect(results).to be_nan
+      end
+    end
+
+    context 'when the iteration cannot be carried out' do
+      it 'returns NaN when the rate guess is zero' do
+        results = Exonio.rate(nper, pmt, pv, 0, 0, 0.0)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN when a step overflows to infinity' do
+        results = Exonio.rate(nper, pmt, pv, 0, 0, 1e300)
+
+        expect(results).to be_nan
+      end
+    end
+
+    context 'when an argument is not a finite real number' do
+      it 'returns NaN for an infinite argument' do
+        results = Exonio.rate(nper, pmt, Float::INFINITY)
+
+        expect(results).to be_nan
+      end
+
+      it 'returns NaN for a NaN argument' do
+        results = Exonio.rate(nper, pmt, pv, Float::NAN)
+
+        expect(results).to be_nan
+      end
+    end
+
+    it 'always terminates' do
+      non_converging = [
+        [0, pmt, pv],
+        [-12, pmt, pv],
+        [nper, 0.0, 0.0, 0.0],
+        [nper, pmt, 3056.00],
+        [nper, pmt, pv, -1_000_000_000],
+        [nper, pmt, pv, 0, 0, 0.0],
+      ]
+
+      expect {
+        Timeout.timeout(10) { non_converging.each { |args| Exonio.rate(*args) } }
+      }.not_to raise_error
+    end
+
+    it 'converges for guesses far away from the rate' do
+      results = Exonio.rate(nper, pmt, pv, 0, 0, 1e10)
+
+      expect(results.round(10)).to eq(0.0596342227)
+    end
+
+    it 'still converges for a negative nper that admits a rate' do
+      results = Exonio.rate(-23, 387.03, 5563.81, 0, 0, 0.01)
+
+      expect(results).to eq(-0.04602860033291536)
     end
   end
 

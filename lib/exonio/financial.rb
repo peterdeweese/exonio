@@ -149,8 +149,20 @@ module Exonio
       -(fv + pmt * fact) / temp
     end
 
+    # Maximum number of Newton-Raphson steps #rate attempts before giving up. Set far above
+    # the ~700 steps the slowest converging arguments need, so that it only ever catches
+    # arguments that would otherwise iterate forever.
+    RATE_MAX_ITERATIONS = 10_000
+
+    # Absolute change between successive guesses at which #rate is considered converged.
+    RATE_TOLERANCE = 1e-6
+
     # Calculates the interest rate of an annuity investment based on
     # constant-amount periodic payments and the assumption of a constant interest rate.
+    #
+    # The iteration does not converge for every set of arguments. When it has not converged
+    # after +RATE_MAX_ITERATIONS+ steps, #rate gives up and returns +Float::NAN+ rather than
+    # iterating forever.
     #
     # @param nper [Integer] The number of payments to be made (number of periods)
     # @param pmt [Float] The amount per period to be paid
@@ -167,18 +179,16 @@ module Exonio
     #
     def rate(nper, pmt, pv, fv = 0, end_or_beginning = 0, rate_guess = 0.10)
       guess = rate_guess
-      tolerancy = 1e-6
-      close = false
 
-      begin
+      RATE_MAX_ITERATIONS.times do
         temp = newton_iter(guess, nper, pmt, pv, fv, end_or_beginning)
         next_guess = (guess - temp).round(20)
-        diff = (next_guess - guess).abs
-        close = diff < tolerancy
-        guess = next_guess
-      end while !close
+        return next_guess if (next_guess - guess).abs < RATE_TOLERANCE
 
-      next_guess
+        guess = next_guess
+      end
+
+      Float::NAN
     end
 
     # Calculates the net present value of an investment based on a
